@@ -79,13 +79,16 @@ The repo contains confirmed working `.aml` files contributed by
 users for specific T2 Intel Mac models. If your model is listed, you can use the
 pre-built overlay directly instead of patching manually.
 
-If you successfully apply the fix on a model not yet listed, please open an issue or pull
+If you successfully apply either fix on a model not yet listed, please open an issue or pull
 request with your patched `.aml`. Name the file after your model, replacing the comma
 in the model identifier with an underscore to avoid shell quoting issues:
 
 ```
 MacBookAir9_1-CpuSsdt-sdtl-fix.aml
 MacBookPro16_1-CpuSsdt-sdtl-fix.aml
+
+MacBookAir9_1-DSDT-osc-fix.aml
+MacBookPro16_1-DSDT-osc-fix.aml
 ```
 
 ## Applicability
