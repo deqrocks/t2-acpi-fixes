@@ -111,9 +111,7 @@ The ACPI table number varies by machine. On MacBookAir9,1 it is SSDT5.
 To find it on your machine:
 
 ```
-for f in /sys/firmware/acpi/tables/SSDT*; do
-    sudo strings "$f" | grep -q CpuSsdt && echo "$f"
-done
+sudo grep -rl "CpuSsdt" /sys/firmware/acpi/tables/
 ```
 
 This prints the path of the SSDT that contains `CpuSsdt`.
