@@ -1,9 +1,15 @@
 # ACPI Fixes for T2 Macs running Linux
 
-This repo contains SSDT overlays to fix ACPI issues on T2 Macs running Linux.
-The ACPI tables provided by Apple were never meant for Linux, resulting in uncommon behaviour.
-One of them being slow resume times caused by CPU cores coming up slowly after sleep, which is explained below.
-We also observe other issues like WiFi not able to transition from D0 to D3 on suspend. Or dGPUs not transitioning from D3 to D0 on resume. Again ACPI could be the root cause, but requires further investigation. This is a first step into fixing SSDTs for T2 Macs using overlays. I will begin with with fixing the smpboot time issue and explain how I solved it in the guide below.
+This repo contains ACPI table patches for T2 Intel Macs running Linux.
+Apple's ACPI tables were never meant for Linux, resulting in a range of issues.
+Two confirmed fixes are documented here.
+
+## Fixes in this repo
+
+- [Slow S3 resume (10-17s smpboot): CpuSsdt SDTL fix](#guide-on-fixing-the-smpboot-times-issue): pre-initializes `\SDTL` so `_PDC` is never serialized, bringing all CPUs online in ~1.6s
+- [ACPI boot errors: DSDT `_OSC` buffer overflow fix](#guide-on-fixing-the-dsdt-_osc-buffer-overflow): removes out-of-bounds `CDW3` field, eliminating `AE_AML_BUFFER_LIMIT` errors and restoring PCIe capability negotiation
+
+---
 
 ## The SMPBOOT-time issue
 
