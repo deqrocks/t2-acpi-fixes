@@ -92,7 +92,9 @@ The `SSDT` package inside CpuSsdt contains machine-specific physical addresses f
 the HWP/PSD sub-tables. Do **not** copy a pre-built `.aml` from a different machine
 model. Either use a contributed overlay for your exact model or patch your own.
 
-## Step-by-step
+---
+
+## Guide on fixing the SMPBOOT times issue
 
 ### 1. Verify the problem
 
@@ -189,3 +191,211 @@ sudo dmesg
 ```
 
 Go up till you find smpboot. Should show all CPUs online within 1-2 seconds.
+
+---
+
+## Guide on fixing the DSDT `_OSC` buffer overflow
+
+Apple's DSDT contains two `_OSC` methods that trigger `AE_AML_BUFFER_LIMIT` on
+every boot. The error prevents Linux from properly negotiating PCIe capabilities.
+
+
+Both `\_SB._OSC` and `\_SB.PCI0._OSC` create a DWord field (`CDW3`) at byte
+offset 8 of an 8-byte buffer:
+
+```
+CreateDWordField (Local0, 0x08, CDW3)   // reads bytes 8-11 of a 8-byte buffer
+```
+
+This overflows the buffer. Linux logs:
+
+```
+ACPI Error: AE_AML_BUFFER_LIMIT, Index (0x00000008) is beyond end of object
+ACPI Error: Method parse/execution failed \_SB._OSC, AE_AML_BUFFER_LIMIT
+ACPI Error: Method parse/execution failed \_SB.PCI0._OSC, AE_AML_BUFFER_LIMIT
+```
+
+When `_OSC` fails, Linux cannot claim PCIe capabilities (PCIeHotplug, AER, LTR,
+DPC). The capability negotiation is skipped entirely.
+
+Additionally, `CDW1` (which signals an unsupported UUID back to the OS) was only
+created inside the `If` branch, so the `Else` branch (`CDW1 |= 0x04`) would
+reference an undefined object. This bug was hidden in the original code because
+the `CDW3` overflow aborted the method before reaching the `Else` branch.
+
+`CDW3` is never read or used after creation. The fix removes it and moves
+`Local0` assignment and `CDW1` creation before the `If` block so both branches
+have access to `CDW1`.
+
+After applying the patch:
+- Zero `AE_AML_BUFFER_LIMIT` errors at boot
+- Better overall compatibility and stability
+- Linux successfully negotiates new PCIe capabilities:
+  ```
+  _OSC: OS assumes control of [PCIeHotplug SHPCHotplug AER PCIeCapability LTR DPC]
+  ```
+
+### Step-by-step
+
+#### 1. Verify the problem
+
+```
+journalctl -b 0 -k --grep='AE_AML_BUFFER_LIMIT'
+```
+
+Expected output contains lines referencing `\_SB._OSC` and `\_SB.PCI0._OSC`.
+
+#### 2. Extract and disassemble DSDT
+
+```
+sudo cp /sys/firmware/acpi/tables/DSDT ./DSDT
+iasl -d DSDT
+```
+
+This produces human readable `DSDT.dsl`.
+
+#### 3. Patch
+
+Make three changes in `DSDT.dsl`.
+
+**Bump OEM revision** so the kernel accepts the override:
+```
+DefinitionBlock ("", "DSDT", 2, "APPLE ", "MacBook", 0x00080001)
+```
+becomes:
+```
+DefinitionBlock ("", "DSDT", 2, "APPLE ", "MacBook", 0x00080002)
+```
+
+**Patch `\_SB._OSC`** (original):
+```
+Method (_OSC, 4, Serialized)
+{
+    If ((Arg0 == ToUUID ("0811b06e-4a27-44f9-8d60-3cbbc22e7b48")))
+    {
+        Local0 = Arg3
+        CreateDWordField (Local0, Zero, CDW1)
+        CreateDWordField (Local0, 0x04, CDW2)
+        CreateDWordField (Local0, 0x08, CDW3)
+    }
+    Else
+    {
+        CDW1 |= 0x04
+    }
+    Return (Local0)
+}
+```
+
+becomes:
+```
+Method (_OSC, 4, Serialized)
+{
+    Local0 = Arg3
+    CreateDWordField (Local0, Zero, CDW1)
+    If ((Arg0 == ToUUID ("0811b06e-4a27-44f9-8d60-3cbbc22e7b48")))
+    {
+        CreateDWordField (Local0, 0x04, CDW2)
+    }
+    Else
+    {
+        CDW1 |= 0x04
+    }
+    Return (Local0)
+}
+```
+
+**Patch `\_SB.PCI0._OSC`** (original):
+```
+Method (_OSC, 4, Serialized)
+{
+    If ((Arg0 == ToUUID ("33db4d5b-1ff7-401c-9657-7441c03dd766")))
+    {
+        Local0 = Arg3
+        CreateDWordField (Local0, Zero, CDW1)
+        CreateDWordField (Local0, 0x04, CDW2)
+        CreateDWordField (Local0, 0x08, CDW3)
+    }
+    Else
+    {
+        CDW1 |= 0x04
+    }
+    Return (Local0)
+}
+```
+
+becomes:
+```
+Method (_OSC, 4, Serialized)
+{
+    Local0 = Arg3
+    CreateDWordField (Local0, Zero, CDW1)
+    If ((Arg0 == ToUUID ("33db4d5b-1ff7-401c-9657-7441c03dd766")))
+    {
+        CreateDWordField (Local0, 0x04, CDW2)
+    }
+    Else
+    {
+        CDW1 |= 0x04
+    }
+    Return (Local0)
+}
+```
+
+#### 4. Compile
+
+```
+iasl -tc DSDT.dsl
+```
+
+Must produce `0 Errors, 0 Warnings`.
+
+#### 5. Deploy via dracut (Fedora)
+
+A DSDT override is deployed as `dsdt.aml` (fixed name, no table-ID matching).
+The same `acpi_table_dir` used for the SSDT overlay works here.
+
+```
+sudo cp DSDT.aml /usr/local/lib/firmware/acpi/dsdt.aml
+```
+
+If you have not already created the dracut config from the CpuSsdt section:
+
+```
+sudo mkdir -p /usr/local/lib/firmware/acpi
+```
+
+Create or update `/etc/dracut.conf.d/acpi-cpussdt-fix.conf` to include:
+```
+acpi_override="yes"
+acpi_table_dir="/usr/local/lib/firmware/acpi"
+```
+
+Rebuild initramfs and reboot:
+```
+sudo dracut --force
+sudo reboot
+```
+
+#### 6. Verify
+
+```
+journalctl -b 0 -k --grep='AE_AML_BUFFER_LIMIT'
+```
+
+Should return nothing. Then:
+
+```
+journalctl -b 0 -k --grep='_OSC'
+```
+
+Should show:
+
+```
+_OSC: OS assumes control of [PCIeHotplug SHPCHotplug AER PCIeCapability LTR DPC]
+```
+
+### Note on DSDT overrides
+
+A DSDT override replaces the entire DSDT, not just a single table. It is more
+invasive than an SSDT overlay. The patched file must come from your own machine;
+do not copy a pre-built `dsdt.aml` from a different model.
