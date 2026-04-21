@@ -1,7 +1,14 @@
-# Apple T2 Intel Mac — smpboot Resume Fix
+# ACPI Fixes for T2 Macs running Linux
+
+This repo contains SSDT overlays to fix ACPI issues on T2 Macs running Linux.
+The ACPI tables provided by Apple were never meant for Linux, resulting in uncommon behaviour.
+One of them being slow resume times caused by CPU cores coming up slowly after sleep, which is explained below.
+We also observe other issues like WiFi not able to transition from D0 to D3 on suspend. Or dGPUs not transitioning from D3 to D0 on resume. Again ACPI could be the root cause, but requires further investigation. This is a first step into fixing SSDTs for T2 Macs using overlays. I will begin with with fixing the smpboot time issue and explain how I solved it in the guide below.
+
+## The SMPBOOT-time issue
 
 On Linux, resuming from S3 sleep takes 10-17+ seconds before all CPUs are online.
-The root cause is in Apple's `CpuSsdt`: the `GCAP` method tries to `Load()`
+The cause is in Apple's `CpuSsdt`: the `GCAP` method tries to `Load()`
 IST/CST sub-tables that are already loaded from the XSDT at boot. Every `Load()`
 returns `AE_ALREADY_EXISTS`, the method aborts, and Linux dynamically marks `_PDC`
 and `_OSC` as Serialized. On resume, the APs that are first threads of non-BSP
