@@ -39,12 +39,19 @@ and `SDTL` is set correctly. This is why Windows and macOS do not have this prob
 
 ## A SSDT overlay to the rescue
 
-We extract the faulty SSDT table and patch it. We override `CpuSsdt` with a patched version that pre-initializes `\SDTL = 0x3A`
-(bits for the four already-loaded tables). `GCAP` then skips those `Load()` calls,
-runs to completion, and `_PDC` is never serialized.
+We extract the faulty SSDT table and patch it. We override `CpuSsdt` with a patched version that pre-initializes `\SDTL`
+to the OR-mask of all SDTL guard bits used by your machine's `GCAP`/AP* paths.
+`GCAP` then skips those `Load()` calls, runs to completion, and `_PDC` is never serialized.
 
 ```
 0x3A = 0x02 | 0x08 | 0x10 | 0x20
+```
+
+On some models (for example MacBookPro16,4), more guards are present, so the
+correct value is larger. Example from a MBP16,4 `SSDT5.dsl`:
+
+```
+0x03FA = 0x0002 | 0x0008 | 0x0010 | 0x0020 | 0x0040 | 0x0080 | 0x0100 | 0x0200
 ```
 
 All `_PDC`, `_OSC`, and `GCAP` methods are left completely unchanged.
@@ -140,22 +147,40 @@ Replace `x` with the number you found in the path. This decompiles the file to a
 
 In `SSDTx.dsl`, make two changes:
 
-Bump the OEM revision so the kernel accepts the override:
-```
-DefinitionBlock ("", "SSDT", 2, "CpuRef", "CpuSsdt", 0x00003000)
-```
-becomes:
+Bump the OEM revision by `+1` so the kernel accepts the override:
 ```
 DefinitionBlock ("", "SSDT", 2, "CpuRef", "CpuSsdt", 0x00003001)
 ```
+becomes:
+```
+DefinitionBlock ("", "SSDT", 2, "CpuRef", "CpuSsdt", 0x00003002)
+```
 
-Pre-initialize SDTL:
+Pre-initialize SDTL to the OR-mask of **all** SDTL guard bits found in the file.
+To compute the value, grep for every `!(SDTL & 0x...)` that guards a `Load()` call
+and OR the values together:
+
+```
+grep -o 'SDTL & 0x[0-9A-Fa-f]*' SSDTx.dsl | grep -o '0x.*'
+```
+
+Example — MBA9,1 has four guards (no HWP block):
+```
+0x02 | 0x08 | 0x10 | 0x20 = 0x3A
+```
+
+Example — MBP16,2 / MBP16,4 have eight guards (includes HWP block):
+```
+0x02 | 0x08 | 0x10 | 0x20 | 0x40 | 0x80 | 0x100 | 0x200 = 0x3FA
+```
+
+Then change:
 ```
 Name (\SDTL, Zero)
 ```
-becomes:
+to:
 ```
-Name (\SDTL, 0x0000003A)
+Name (\SDTL, 0x0000003A)   // replace with your computed value
 ```
 
 ### 5. Compile
@@ -164,7 +189,7 @@ Name (\SDTL, 0x0000003A)
 iasl -tc SSDTx.dsl
 ```
 
-Must produce `0 Errors, 0 Warnings`.
+Must produce `0 Errors, 0 Warnings`. Remarks are acceptable.
 
 ### 6. Deploy via dracut (Fedora)
 
