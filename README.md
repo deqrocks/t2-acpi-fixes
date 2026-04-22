@@ -4,71 +4,11 @@ This repo contains ACPI table patches for T2 Intel Macs running Linux.
 Apple's ACPI tables were never meant for Linux, resulting in a range of issues.
 Two confirmed fixes are documented here.
 
-## Fixes in this repo
 
 - [Slow S3 resume (10-17s smpboot): CpuSsdt SDTL fix](#guide-on-fixing-the-smpboot-times-issue): pre-initializes `\SDTL` so `_PDC` is never serialized, bringing all CPUs online in ~1.6s
 - [ACPI boot errors: DSDT `_OSC` buffer overflow fix](#guide-on-fixing-the-dsdt-_osc-buffer-overflow): removes out-of-bounds `CDW3` field, eliminating `AE_AML_BUFFER_LIMIT` errors and restoring PCIe capability negotiation
 
 ---
-
-## The SMPBOOT-time issue
-
-On Linux, resuming from S3 sleep takes 10-17+ seconds before all CPUs are online.
-The cause is in Apple's `CpuSsdt`: the `GCAP` method tries to `Load()`
-IST/CST sub-tables that are already loaded from the XSDT at boot. Every `Load()`
-returns `AE_ALREADY_EXISTS`, the method aborts, and Linux dynamically marks `_PDC`
-and `_OSC` as Serialized. On resume, the APs that are first threads of non-BSP
-physical cores queue behind that mutex sequentially instead of waking in parallel.
-
-`CpuSsdt` uses a global bitmask `\SDTL` to track which sub-tables have been loaded.
-It initializes to `Zero`. `GCAP` checks each bit before calling `Load()`:
-
-```
-If (!(SDTL & 0x08)) { Load(CPU0IST) }   already in XSDT -> AE_ALREADY_EXISTS
-If (!(SDTL & 0x02)) { Load(CPU0CST) }   already in XSDT -> AE_ALREADY_EXISTS
-If (!(SDTL & 0x10)) { Load(APIST)   }   already in XSDT -> AE_ALREADY_EXISTS
-If (!(SDTL & 0x20)) { Load(APCST)   }   already in XSDT -> AE_ALREADY_EXISTS
-```
-
-Because `Load()` fails, the SDTL bits are never set, so the same failure repeats
-on every resume. Linux serializes `_PDC` in response.
-
-Linux is the only mainstream OS that pre-loads all static SSDTs from the XSDT at
-boot. Other OSes load them on demand via `Load()`, so the calls in `GCAP` succeed
-and `SDTL` is set correctly. This is why Windows and macOS do not have this problem.
-
-## A SSDT overlay to the rescue
-
-We extract the faulty SSDT table and patch it. The only change is pre-initializing
-`\SDTL` to a machine-specific value that tells `GCAP` all sub-tables are already
-loaded — so every `Load()` call is skipped, `GCAP` runs to completion, and `_PDC`
-is never serialized.
-
-All `_PDC`, `_OSC`, and `GCAP` methods are left completely unchanged.
-
-## Results (MacBookAir9,1 / i5-1030NG7)
-
-**Without patch** (~11 s):
-```
-[58.334] Booting CPU1 -> [60.993] up  (2.66s)
-[61.008] Booting CPU2 -> [63.189] up  (2.18s)
-[63.202] Booting CPU3 -> [65.168] up  (1.97s)
-[65.202] Booting CPU4 -> [65.208] up  (6ms)
-[65.208] Booting CPU5 -> [66.785] up  (1.58s)
-[66.805] Booting CPU6 -> [68.594] up  (1.79s)
-[68.617] Booting CPU7 -> [70.473] up  (1.86s)
-```
-
-**With patch** (~1.6 s):
-```
-[71.261] Booting CPU1 -> [71.338] up  (77ms)
-[71.338] Booting CPU2 -> [71.412] up  (74ms)
-[71.412] Booting CPU3 -> [71.544] up  (132ms)
-[71.544] Booting CPU4 -> [71.547] up  (3ms)
-[71.547] Booting CPU5 -> [71.874] up  (327ms)
-[71.875] Booting CPU6 -> [72.298] up  (423ms)
-[72.299] Booting CPU7 -> [72.843] up  (544ms)
-```
 
 ## Contribution / Pre-patched overlays
 
@@ -101,6 +41,84 @@ model. Either use a contributed overlay for your exact model or patch your own.
 ---
 
 ## Guide on fixing the SMPBOOT times issue
+
+### What's happening
+
+On Linux, resuming from S3 sleep takes 10-17+ seconds before all CPUs are online.
+The cause is in Apple's `CpuSsdt`: the `GCAP` method tries to `Load()`
+IST/CST sub-tables that are already loaded from the XSDT at boot. Every `Load()`
+returns `AE_ALREADY_EXISTS`, the method aborts, and Linux dynamically marks `_PDC`
+and `_OSC` as Serialized. On resume, the APs that are first threads of non-BSP
+physical cores queue behind that mutex sequentially instead of waking in parallel.
+
+`CpuSsdt` uses a global bitmask `\SDTL` to track which sub-tables have been loaded.
+It initializes to `Zero`. `GCAP` checks each bit before calling `Load()`:
+
+```
+If (!(SDTL & 0x08)) { Load(CPU0IST) }   already in XSDT -> AE_ALREADY_EXISTS
+If (!(SDTL & 0x02)) { Load(CPU0CST) }   already in XSDT -> AE_ALREADY_EXISTS
+If (!(SDTL & 0x10)) { Load(APIST)   }   already in XSDT -> AE_ALREADY_EXISTS
+If (!(SDTL & 0x20)) { Load(APCST)   }   already in XSDT -> AE_ALREADY_EXISTS
+```
+
+Because `Load()` fails, the SDTL bits are never set, so the same failure repeats
+on every resume. Linux serializes `_PDC` in response.
+
+Linux is the only mainstream OS that pre-loads all static SSDTs from the XSDT at
+boot. Other OSes load them on demand via `Load()`, so the calls in `GCAP` succeed
+and `SDTL` is set correctly. This is why Windows and macOS do not have this problem.
+
+The fix is to extract and patch `CpuSsdt` with a SSDT overlay that pre-initializes
+`\SDTL` to a machine-specific value. Every `Load()` call is then skipped, `GCAP`
+runs to completion, and `_PDC` is never serialized. All `_PDC`, `_OSC`, and `GCAP`
+methods are left completely unchanged.
+
+### Results (MacBookAir9,1 / i5-1030NG7)
+
+**Without patch** (~11 s):
+```
+[58.334] Booting CPU1 -> [60.993] up  (2.66s)
+[61.008] Booting CPU2 -> [63.189] up  (2.18s)
+[63.202] Booting CPU3 -> [65.168] up  (1.97s)
+[65.202] Booting CPU4 -> [65.208] up  (6ms)
+[65.208] Booting CPU5 -> [66.785] up  (1.58s)
+[66.805] Booting CPU6 -> [68.594] up  (1.79s)
+[68.617] Booting CPU7 -> [70.473] up  (1.86s)
+```
+
+**With patch** (~1.6 s):
+```
+[71.261] Booting CPU1 -> [71.338] up  (77ms)
+[71.338] Booting CPU2 -> [71.412] up  (74ms)
+[71.412] Booting CPU3 -> [71.544] up  (132ms)
+[71.544] Booting CPU4 -> [71.547] up  (3ms)
+[71.547] Booting CPU5 -> [71.874] up  (327ms)
+[71.875] Booting CPU6 -> [72.298] up  (423ms)
+[72.299] Booting CPU7 -> [72.843] up  (544ms)
+```
+
+### Known limitation: residual latency on i7/i9 models
+
+The SDTL fix fully resolves the problem on i5 machines (confirmed on MacBookAir9,1
+and MacBookPro15,4). The "Marking method _PDC/_OSC as Serialized" message disappears
+and all APs come online in ~77ms each.
+
+On i7 and i9 models (confirmed on MacBookPro16,2 and MacBookPro16,4), a residual
+per-core delay remains even after the fix:
+
+| Model            | CPU          | Per-core delay after fix |
+|------------------|--------------|--------------------------|
+| MacBookPro16,2   | i7-1068NG7   | ~2.2 s per physical core |
+| MacBookPro16,4   | i9-9980HK    | ~300–450 ms per physical core |
+
+The serialization bug is fixed on these machines too (the "Marking method" message
+is gone). The residual delay is a separate issue: i7/i9 CpuSsdts contain additional
+HWP (Hardware P-states) sub-tables, and the T2 firmware appears to perform a
+per-core HWP power-on handshake during resume that has no equivalent on i5 models.
+This is T2 firmware behavior and is not fixable via ACPI patching.
+
+Total resume time on affected models is still significantly better than without the
+patch (the serialization overhead is gone), but not as fast as on i5.
 
 ### 1. Verify the problem
 
@@ -152,7 +170,7 @@ Find all SDTL guard values in your file:
 grep -o 'SDTL & 0x[0-9A-Fa-f]*' SSDTx.dsl | grep -o '0x.*'
 ```
 
-This prints one hex number per line — one for each `Load()` call in the file.
+This prints one hex number per line, one for each `Load()` call in the file.
 Add them all together with bitwise OR (since none of the bits overlap, this is the
 same as simple addition). The result is your SDTL value.
 
@@ -423,3 +441,17 @@ journalctl -b 0 -k --grep='AE_AML_BUFFER_LIMIT'
 Should return nothing. Then:
 
 ```
+journalctl -b 0 -k --grep='_OSC'
+```
+
+Should show:
+
+```
+_OSC: OS assumes control of [PCIeHotplug SHPCHotplug AER PCIeCapability LTR DPC]
+```
+
+### Note on DSDT overrides
+
+A DSDT override replaces the entire DSDT, not just a single table. It is more
+invasive than an SSDT overlay. The patched file must come from your own machine;
+do not copy a pre-built `dsdt.aml` from a different model.
