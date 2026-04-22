@@ -39,20 +39,10 @@ and `SDTL` is set correctly. This is why Windows and macOS do not have this prob
 
 ## A SSDT overlay to the rescue
 
-We extract the faulty SSDT table and patch it. We override `CpuSsdt` with a patched version that pre-initializes `\SDTL`
-to the OR-mask of all SDTL guard bits used by your machine's `GCAP`/AP* paths.
-`GCAP` then skips those `Load()` calls, runs to completion, and `_PDC` is never serialized.
-
-```
-0x3A = 0x02 | 0x08 | 0x10 | 0x20
-```
-
-On some models (for example MacBookPro16,4), more guards are present, so the
-correct value is larger. Example from a MBP16,4 `SSDT5.dsl`:
-
-```
-0x03FA = 0x0002 | 0x0008 | 0x0010 | 0x0020 | 0x0040 | 0x0080 | 0x0100 | 0x0200
-```
+We extract the faulty SSDT table and patch it. The only change is pre-initializing
+`\SDTL` to a machine-specific value that tells `GCAP` all sub-tables are already
+loaded — so every `Load()` call is skipped, `GCAP` runs to completion, and `_PDC`
+is never serialized.
 
 All `_PDC`, `_OSC`, and `GCAP` methods are left completely unchanged.
 
@@ -156,23 +146,37 @@ becomes:
 DefinitionBlock ("", "SSDT", 2, "CpuRef", "CpuSsdt", 0x00003002)
 ```
 
-Pre-initialize SDTL to the OR-mask of **all** SDTL guard bits found in the file.
-To compute the value, grep for every `!(SDTL & 0x...)` that guards a `Load()` call
-and OR the values together:
+Find all SDTL guard values in your file:
 
 ```
 grep -o 'SDTL & 0x[0-9A-Fa-f]*' SSDTx.dsl | grep -o '0x.*'
 ```
 
-Example — MBA9,1 has four guards (no HWP block):
-```
-0x02 | 0x08 | 0x10 | 0x20 = 0x3A
-```
+This prints one hex number per line — one for each `Load()` call in the file.
+Add them all together with bitwise OR (since none of the bits overlap, this is the
+same as simple addition). The result is your SDTL value.
 
-Example — MBP16,2 / MBP16,4 have eight guards (includes HWP block):
+Example output on MBA9,1 (4 guards):
 ```
-0x02 | 0x08 | 0x10 | 0x20 | 0x40 | 0x80 | 0x100 | 0x200 = 0x3FA
+0x02
+0x08
+0x10
+0x20
 ```
+→ `0x02 + 0x08 + 0x10 + 0x20 = 0x3A`
+
+Example output on MBP16,2 / MBP16,4 (8 guards, includes HWP block):
+```
+0x02
+0x08
+0x10
+0x20
+0x40
+0x80
+0x100
+0x200
+```
+→ `0x02 + 0x08 + 0x10 + 0x20 + 0x40 + 0x80 + 0x100 + 0x200 = 0x3FA`
 
 Then change:
 ```
@@ -180,7 +184,7 @@ Name (\SDTL, Zero)
 ```
 to:
 ```
-Name (\SDTL, 0x0000003A)   // replace with your computed value
+Name (\SDTL, 0x000003FA)   // replace with your computed value
 ```
 
 ### 5. Compile
@@ -419,17 +423,3 @@ journalctl -b 0 -k --grep='AE_AML_BUFFER_LIMIT'
 Should return nothing. Then:
 
 ```
-journalctl -b 0 -k --grep='_OSC'
-```
-
-Should show:
-
-```
-_OSC: OS assumes control of [PCIeHotplug SHPCHotplug AER PCIeCapability LTR DPC]
-```
-
-### Note on DSDT overrides
-
-A DSDT override replaces the entire DSDT, not just a single table. It is more
-invasive than an SSDT overlay. The patched file must come from your own machine;
-do not copy a pre-built `dsdt.aml` from a different model.
