@@ -5,7 +5,7 @@ Apple's ACPI tables were never meant for Linux, resulting in a range of issues.
 Two confirmed fixes are documented here.
 
 
-- [Slow S3 resume (10-17s smpboot): CpuSsdt SDTL fix](#guide-on-fixing-the-smpboot-times-issue): pre-initializes `\SDTL` so `_PDC` is never serialized, bringing all CPUs online in ~1.6s
+- [CpuSsdt SDTL fix](#guide-on-fixing-the-smpboot-times-issue): pre-initializes `\SDTL` so `_PDC` is never serialized
 - [ACPI boot errors: DSDT `_OSC` buffer overflow fix](#guide-on-fixing-the-dsdt-_osc-buffer-overflow): removes out-of-bounds `CDW3` field, eliminating `AE_AML_BUFFER_LIMIT` errors and restoring PCIe capability negotiation
 
 ---
@@ -17,15 +17,14 @@ users for specific T2 Intel Mac models. If your model is listed, you can use the
 pre-built overlay directly instead of patching manually.
 
 If you successfully apply either fix on a model not yet listed, please open an issue or pull
-request with your patched `.aml`. Name the file after your model, replacing the comma
-in the model identifier with an underscore to avoid shell quoting issues:
+request with your patched `.aml`. Name the file after your model, limited to 17 chars including file extension to avoid Maxcpio(18) errors:
 
 ```
-MacBookAir9_1-CpuSsdt-sdtl-fix.aml
-MacBookPro16_1-CpuSsdt-sdtl-fix.aml
+91CpuSSDT.aml # SSDT for MacBook Air 9,1
+161CpuSSDT.aml # SSDT for MacBook Pro 16,1
 
-MacBookAir9_1-DSDT-osc-fix.aml
-MacBookPro16_1-DSDT-osc-fix.aml
+151DSDT.aml # DSDT for MacBook Pro 15,1
+164DSDT.aml # DSDT for MacBook Pro 16,4
 ```
 
 ## Applicability
@@ -75,7 +74,7 @@ methods are left completely unchanged.
 
 ### Results (MacBookAir9,1 / i5-1030NG7)
 
-**Without patch** (~11 s):
+**Without patches** (~11 s):
 ```
 [58.334] Booting CPU1 -> [60.993] up  (2.66s)
 [61.008] Booting CPU2 -> [63.189] up  (2.18s)
@@ -86,7 +85,7 @@ methods are left completely unchanged.
 [68.617] Booting CPU7 -> [70.473] up  (1.86s)
 ```
 
-**With patch** (~1.6 s):
+**With patches** (~1.6 s):
 ```
 [71.261] Booting CPU1 -> [71.338] up  (77ms)
 [71.338] Booting CPU2 -> [71.412] up  (74ms)
@@ -96,29 +95,6 @@ methods are left completely unchanged.
 [71.875] Booting CPU6 -> [72.298] up  (423ms)
 [72.299] Booting CPU7 -> [72.843] up  (544ms)
 ```
-
-### Known limitation: residual latency on i7/i9 models
-
-The SDTL fix fully resolves the problem on i5 machines (confirmed on MacBookAir9,1
-and MacBookPro15,4). The "Marking method _PDC/_OSC as Serialized" message disappears
-and all APs come online in ~77ms each.
-
-On i7 and i9 models (confirmed on MacBookPro16,2 and MacBookPro16,4), a residual
-per-core delay remains even after the fix:
-
-| Model            | CPU          | Per-core delay after fix |
-|------------------|--------------|--------------------------|
-| MacBookPro16,2   | i7-1068NG7   | ~2.2 s per physical core |
-| MacBookPro16,4   | i9-9980HK    | ~300–450 ms per physical core |
-
-The serialization bug is fixed on these machines too (the "Marking method" message
-is gone). The residual delay is a separate issue: i7/i9 CpuSsdts contain additional
-HWP (Hardware P-states) sub-tables, and the T2 firmware appears to perform a
-per-core HWP power-on handshake during resume that has no equivalent on i5 models.
-This is T2 firmware behavior and is not fixable via ACPI patching.
-
-Total resume time on affected models is still significantly better than without the
-patch (the serialization overhead is gone), but not as fast as on i5.
 
 ### 1. Verify the problem
 
@@ -133,7 +109,7 @@ Marking method _PDC as Serialized because of AE_ALREADY_EXISTS error
 
 ### 2. Find CpuSsdt
 
-The ACPI table number varies by machine. On MacBookAir9,1 it is SSDT5.
+The ACPI table number varies by machine. On MacBookAir9,1 and 16,2 it is SSDT5.
 To find it on your machine:
 
 ```
@@ -155,55 +131,22 @@ Replace `x` with the number you found in the path. This decompiles the file to a
 
 In `SSDTx.dsl`, make two changes:
 
-Bump the OEM revision by `+1` so the kernel accepts the override:
+Bump the OEM revision so the kernel accepts the override:
 ```
-DefinitionBlock ("", "SSDT", 2, "CpuRef", "CpuSsdt", 0x00003001)
+DefinitionBlock ("", "SSDT", 2, "CpuRef", "CpuSsdt", 0x00003000)
 ```
 becomes:
 ```
-DefinitionBlock ("", "SSDT", 2, "CpuRef", "CpuSsdt", 0x00003002)
+DefinitionBlock ("", "SSDT", 2, "CpuRef", "CpuSsdt", 0x00003001)
 ```
 
-Find all SDTL guard values in your file:
-
-```
-grep -o 'SDTL & 0x[0-9A-Fa-f]*' SSDTx.dsl | grep -o '0x.*'
-```
-
-This prints one hex number per line, one for each `Load()` call in the file.
-Add them all together with bitwise OR (since none of the bits overlap, this is the
-same as simple addition). The result is your SDTL value.
-
-Example output on MBA9,1 (4 guards):
-```
-0x02
-0x08
-0x10
-0x20
-```
-→ `0x02 + 0x08 + 0x10 + 0x20 = 0x3A`
-
-Example output on MBP16,2 / MBP16,4 (8 guards, includes HWP block):
-```
-0x02
-0x08
-0x10
-0x20
-0x40
-0x80
-0x100
-0x200
-```
-→ `0x02 + 0x08 + 0x10 + 0x20 + 0x40 + 0x80 + 0x100 + 0x200 = 0x3FA`
-
-Then change:
+Pre-initialize SDTL:
 ```
 Name (\SDTL, Zero)
 ```
-to:
+becomes:
 ```
-Name (\SDTL, 0x000003FA)   // replace with your computed value
-```
+Name (\SDTL, 0x0000003A)
 
 ### 5. Compile
 
