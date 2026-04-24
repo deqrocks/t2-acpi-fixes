@@ -147,7 +147,7 @@ Name (\SDTL, Zero)
 becomes:
 ```
 Name (\SDTL, 0x0000003A)
-
+```
 ### 5. Compile
 
 ```
