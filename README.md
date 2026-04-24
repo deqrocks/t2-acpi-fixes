@@ -156,13 +156,16 @@ iasl -tc SSDTx.dsl
 
 Must produce `0 Errors, 0 Warnings`. Remarks are acceptable.
 
-### 6. Deploy via dracut (Fedora)
+### 6. Deploy
 
-I am on Fedora. Other distros may use different deploy methods. If anyone wants to contribute how to deploy on other distros, please PR.
+There are at least three different ways of deplying custom ACPI files. 
+The most comprehensive guide on this can be found here: https://wiki.archlinux.org/title/DSDT
+
+I am on Fedora using dracut. 
 
 ```
 sudo mkdir -p /usr/local/lib/firmware/acpi
-sudo cp SSDTx.aml /usr/local/lib/firmware/acpi/YourModel_x_y-CpuSsdt-sdtl-fix.aml
+sudo cp SSDTx.aml /usr/local/lib/firmware/acpi/YourModel_x_y-CpuSSDT.aml
 ```
 
 Create `/etc/dracut.conf.d/acpi-cpussdt-fix.conf`:
@@ -348,10 +351,11 @@ iasl -tc DSDT.dsl
 
 Must produce `0 Errors, 0 Warnings`.
 
-#### 5. Deploy via dracut (Fedora)
+#### 5. Deploy DSDT
 
 A DSDT override is deployed as `dsdt.aml` (fixed name, no table-ID matching).
-The same `acpi_table_dir` used for the SSDT overlay works here.
+The same `acpi_table_dir` used for the SSDT overlay works here. Or if you wish you can also use the alternative guide: https://wiki.archlinux.org/title/DSDT
+The guide below is for Fedora.
 
 ```
 sudo cp DSDT.aml /usr/local/lib/firmware/acpi/dsdt.aml
