@@ -1,0 +1,25 @@
+Sep 06 16:26:38 omarchy-mac kernel: ACPI: PM: Registering ACPI NVS region [mem 0x68186000-0x68186fff] (4096 bytes)
+Sep 06 16:26:38 omarchy-mac kernel: ACPI: PM: Registering ACPI NVS region [mem 0x7aedf000-0x7af9efff] (786432 bytes)
+Sep 06 16:26:38 omarchy-mac kernel: ACPI: \_SB_: platform _OSC: OS support mask [006e7eff]
+Sep 06 16:26:38 omarchy-mac kernel: ACPI BIOS Error (bug): AE_AML_BUFFER_LIMIT, Field [CDW3] at bit offset/length 64/32 exceeds size of target Buffer (64 bits) (20260408/dsopcode-198)
+Sep 06 16:26:38 omarchy-mac kernel: ACPI Error: Aborting method \_SB._OSC due to previous error (AE_AML_BUFFER_LIMIT) (20260408/psparse-543)
+Sep 06 16:26:38 omarchy-mac kernel: ACPI Error: AE_ALREADY_EXISTS, SSDT 0xFFFF8B3A019CB400 Table is already loaded (20260408/tbdata-548)
+Sep 06 16:26:38 omarchy-mac kernel: ACPI Error: Aborting method \_PR.CPU0.GCAP due to previous error (AE_ALREADY_EXISTS) (20260408/psparse-543)
+Sep 06 16:26:38 omarchy-mac kernel: ACPI Error: Aborting method \_PR.CPU0._OSC due to previous error (AE_ALREADY_EXISTS) (20260408/psparse-543)
+Sep 06 16:26:38 omarchy-mac kernel: ACPI: Marking method _OSC as Serialized because of AE_ALREADY_EXISTS error
+Sep 06 16:26:38 omarchy-mac kernel: ACPI Error: AE_ALREADY_EXISTS, SSDT 0xFFFF8B3A01079800 Table is already loaded (20260408/tbdata-548)
+Sep 06 16:26:38 omarchy-mac kernel: ACPI Error: Aborting method \_PR.CPU0.GCAP due to previous error (AE_ALREADY_EXISTS) (20260408/psparse-543)
+Sep 06 16:26:38 omarchy-mac kernel: ACPI Error: Aborting method \_PR.CPU0._PDC due to previous error (AE_ALREADY_EXISTS) (20260408/psparse-543)
+Sep 06 16:26:38 omarchy-mac kernel: ACPI: Marking method _PDC as Serialized because of AE_ALREADY_EXISTS error
+Sep 06 16:26:38 omarchy-mac kernel: ACPI Error: AE_ALREADY_EXISTS, SSDT 0xFFFF8B3A0107C000 Table is already loaded (20260408/tbdata-548)
+Sep 06 16:26:38 omarchy-mac kernel: ACPI Error: Aborting method \_PR.CPU1.APPT due to previous error (AE_ALREADY_EXISTS) (20260408/psparse-543)
+Sep 06 16:26:38 omarchy-mac kernel: ACPI Error: Aborting method \_PR.CPU1.GCAP due to previous error (AE_ALREADY_EXISTS) (20260408/psparse-543)
+Sep 06 16:26:38 omarchy-mac kernel: ACPI Error: Aborting method \_PR.CPU1._PDC due to previous error (AE_ALREADY_EXISTS) (20260408/psparse-543)
+Sep 06 16:26:38 omarchy-mac kernel: ACPI: Marking method _PDC as Serialized because of AE_ALREADY_EXISTS error
+Sep 06 16:26:38 omarchy-mac kernel: ACPI Error: AE_ALREADY_EXISTS, SSDT 0xFFFF8B3A019CB400 Table is already loaded (20260408/tbdata-548)
+Sep 06 16:26:38 omarchy-mac kernel: ACPI Error: Aborting method \_PR.CPU1.APCT due to previous error (AE_ALREADY_EXISTS) (20260408/psparse-543)
+Sep 06 16:26:38 omarchy-mac kernel: ACPI Error: Aborting method \_PR.CPU2.GCAP due to previous error (AE_ALREADY_EXISTS) (20260408/psparse-543)
+Sep 06 16:26:38 omarchy-mac kernel: ACPI Error: Aborting method \_PR.CPU2._PDC due to previous error (AE_ALREADY_EXISTS) (20260408/psparse-543)
+Sep 06 16:26:38 omarchy-mac kernel: ACPI: Marking method _PDC as Serialized because of AE_ALREADY_EXISTS error
+Sep 06 16:26:38 omarchy-mac kernel: ACPI: PM: (supports S0 S3 S4 S5)
+Sep 06 16:26:38 omarchy-mac kernel: acpi PNP0A08:00: _OSC: OS assumes control of [PCIeHotplug SHPCHotplug AER PCIeCapability LTR DPC]
